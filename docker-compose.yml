@@ -1,0 +1,50 @@
+# Cinéthèque : PostgreSQL + API Node/Express + React servi par nginx.
+# Lancement : cp .env.example .env  →  renseigner .env  →  docker compose up --build  →  http://localhost:8080
+name: cineapp
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cineapp
+      POSTGRES_USER: cineapp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Définis POSTGRES_PASSWORD dans .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cineapp -d cineapp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Aucun port publié : la base n'est joignable que par le conteneur « server »
+
+  server:
+    build: ./server
+    restart: unless-stopped
+    env_file: .env # API_KEY, JWT_SECRET…
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      # Base locale par défaut ; définis DATABASE_URL dans .env pour utiliser Neon à la place
+      DATABASE_URL: ${DATABASE_URL:-postgresql://cineapp:${POSTGRES_PASSWORD}@db:5432/cineapp}
+      CLIENT_ORIGIN: http://localhost:${WEB_PORT:-8080}
+      # En HTTP local le cookie ne peut pas être « Secure » ; passe à true derrière HTTPS
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TRUST_PROXY: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "4000"
+
+  client:
+    build: ./client
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - server
+
+volumes:
+  pgdata:
